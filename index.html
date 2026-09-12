@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Volt Encoder</title>
+    <!-- Pako library for zlib/deflate compression in browser -->
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+    <style>
+        :root {
+            --bg: #090a0f;
+            --panel: #12151c;
+            --border: #212633;
+            --border-focus: #3b82f6;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.15);
+            --green: #22c55e;
+            --red: #ef4444;
+            --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.5;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 960px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Top Bar */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+            margin-bottom: 4px;
+        }
+
+        .logo {
+            font-weight: 700;
+            font-size: 15px;
+            color: var(--accent);
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .logo span {
+            background: var(--accent-glow);
+            color: var(--accent);
+            padding: 2px 6px;
+            border: 1px solid var(--accent);
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .system-status {
+            font-size: 11px;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            background-color: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--green);
+        }
+
+        /* Mode Selector Tabs */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--panel);
+            padding: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 8px 16px;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            flex: 1;
+            text-align: center;
+        }
+
+        .tab-btn.active {
+            background: var(--bg);
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+        }
+
+        .tab-btn:hover:not(.active) {
+            color: var(--text);
+            background: rgba(255,255,255,0.02);
+        }
+
+        /* Panel Grid */
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 16px;
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .panel.active {
+            display: flex;
+        }
+
+        .section-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        textarea {
+            width: 100%;
+            height: 140px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 10px;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.1s;
+        }
+
+        textarea:focus {
+            border-color: var(--border-focus);
+        }
+
+        /* Toolbar Actions */
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .file-upload-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-upload-wrapper input[type=file] {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            cursor: pointer;
+            width: 100%;
+            height: 100%;
+        }
+
+        button {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 6px 14px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+
+        button:hover {
+            border-color: var(--text-dim);
+            background: rgba(255,255,255,0.03);
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: #000;
+            border-color: var(--accent);
+            font-weight: 600;
+        }
+
+        button.primary:hover {
+            background: #0ea5e9;
+        }
+
+        /* Metrics Telemetry Box */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 10px;
+        }
+
+        .metric-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .metric-title {
+            font-size: 10px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .metric-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .metric-value.highlight {
+            color: var(--green);
+        }
+
+        /* Alphabet Reference Box */
+        .alphabet-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            font-size: 11px;
+            color: var(--text-dim);
+            word-break: break-all;
+            letter-spacing: 2px;
+        }
+
+        .alphabet-box span {
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* Terminal Console Output */
+        .console-log {
+            background: #040507;
+            border: 1px solid var(--border);
+            padding: 10px;
+            font-size: 11px;
+            color: var(--text-dim);
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .console-log .log-line {
+            margin-bottom: 2px;
+        }
+
+        .console-log .log-success { color: var(--green); }
+        .console-log .log-error { color: var(--red); }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Top App Bar -->
+        <header>
+            <div class="logo">
+                VOLT_CODEC <span>v1.0</span>
+            </div>
+            <div class="system-status">
+                <div class="status-dot"></div>
+                <span>SYSTEM READY (16-SYM SYMMETRY)</span>
+            </div>
+        </header>
+
+        <!-- Alphabet Preview Footer Indicator -->
+        <div class="alphabet-box">
+            ALPHABET (16): <span>! @ # $ % ^ & * ( ) &lt; &gt; _ - + =</span>
+        </div>
+
+        <!-- Mode Select Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('encoder')">01 // ENCODE STREAM</button>
+            <button class="tab-btn is-link" onclick="switchTab('decoder')">02 // DECODE STREAM</button>
+        </div>
+
+        <!-- ENCODER PANEL -->
+        <div id="encoder-panel" class="panel active">
+            <div>
+                <div class="section-label">
+                    <span>Input Raw Text / Payload</span>
+                    <span id="enc-input-stats">0 bytes</span>
+                </div>
+                <textarea id="enc-input" placeholder="Enter plain text or drag/drop file below..." oninput="updateEncoderMetrics()"></textarea>
+            </div>
+
+            <div class="toolbar">
+                <div style="display: flex; gap: 8px;">
+                    <div class="file-upload-wrapper">
+                        <button>[ LOAD FILE ]</button>
+                        <input type="file" id="enc-file-input" onchange="handleFileSelect(event, 'enc')">
+                    </div>
+                    <button onclick="clearEncoder()">CLEAR</button>
+                </div>
+                <button class="primary" onclick="runEncode()">EXECUTE ENCODING</button>
+            </div>
+
+            <div>
+                <div class="section-label">
+                    <span>Volt Encoded Output</span>
+                    <button onclick="copyOutput()" style="padding: 2px 6px; font-size: 10px;">COPY SYMBOLS</button>
+                </div>
+                <textarea id="enc-output" readonly placeholder="Encoded Volt symbols will appear here..."></textarea>
+            </div>
+
+            <!-- Telemetry Metrics -->
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <span class="metric-title">Original Size</span>
+                    <span class="metric-value" id="m-orig">0 B</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-title">Compressed Size</span>
+                    <span class="metric-value" id="m-comp">0 B</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-title">Volt Symbol Output</span>
+                    <span class="metric-value" id="m-volt">0 chars</span>
+                </div>
+                <div class="metric-item">
+                    <span class="metric-title">Size Reduction</span>
+                    <span class="metric-value highlight" id="m-ratio">0.00%</span>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end;">
+                <button id="download-volt-btn" style="display:none;" onclick="downloadVoltFile()">DOWNLOAD .VOLT FILE</button>
+            </div>
+        </div>
+
+        <!-- DECODER PANEL -->
+        <div id="decoder-panel" class="panel">
+            <div>
+                <div class="section-label">
+                    <span>Input Volt Symbol Stream</span>
+                    <span id="dec-input-stats">0 chars</span>
+                </div>
+                <textarea id="dec-input" placeholder="Paste Volt symbols (!@#$%^...) here..." oninput="updateDecoderMetrics()"></textarea>
+            </div>
+
+            <div class="toolbar">
+                <div style="display: flex; gap: 8px;">
+                    <div class="file-upload-wrapper">
+                        <button>[ LOAD .VOLT FILE ]</button>
+                        <input type="file" id="dec-file-input" onchange="handleFileSelect(event, 'dec')">
+                    </div>
+                    <button onclick="clearDecoder()">CLEAR</button>
+                </div>
+                <button class="primary" onclick="runDecode()">EXECUTE DECODING</button>
+            </div>
+
+            <div>
+                <div class="section-label">
+                    <span>Restored Payload Output</span>
+                    <button onclick="copyDecoded()" style="padding: 2px 6px; font-size: 10px;">COPY TEXT</button>
+                </div>
+                <textarea id="dec-output" readonly placeholder="Decoded original data will manifest here..."></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end;">
+                <button id="download-decoded-btn" style="display:none;" onclick="downloadDecodedFile()">DOWNLOAD RESTORED FILE</button>
+            </div>
+        </div>
+
+        <!-- System Activity Console Log -->
+        <div class="console-log" id="console-log">
+            <div class="log-line">[SYSTEM] Codec initialized. Dictionary loaded (16 symbols).</div>
+        </div>
+    </div>
+
+    <script>
+        const VOLT_ALPHABET = '!@#$%^&*()<>_-+=';
+        let lastEncodedBytes = null;
+        let lastDecodedBytes = null;
+        let loadedFileName = 'payload.volt';
+
+        function logMessage(msg, type = 'info') {
+            const consoleEl = document.getElementById('console-log');
+            const line = document.createElement('div');
+            line.className = 'log-line';
+            if (type === 'success') line.classList.add('log-success');
+            if (type === 'error') line.classList.add('log-error');
+            const timestamp = new Date().toISOString().split('T')[1].slice(0, 8);
+            line.textContent = `[${timestamp}] ${msg}`;
+            consoleEl.appendChild(line);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(panel => panel.classList.remove('active'));
+
+            if (tabName === 'encoder') {
+                document.querySelectorAll('.tab-btn')[0].classList.add('active');
+                document.getElementById('encoder-panel').classList.add('active');
+            } else {
+                document.querySelectorAll('.tab-btn')[1].classList.add('active');
+                document.getElementById('decoder-panel').classList.add('active');
+            }
+        }
+
+        function updateEncoderMetrics() {
+            const text = document.getElementById('enc-input').value;
+            const bytes = new TextEncoder().encode(text);
+            document.getElementById('enc-input-stats').textContent = `${bytes.length} bytes`;
+        }
+
+        function updateDecoderMetrics() {
+            const text = document.getElementById('dec-input').value.replace(/[\s\r\n]/g, '');
+            document.getElementById('dec-input-stats').textContent = `${text.length} chars`;
+        }
+
+        function handleFileSelect(event, mode) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            loadedFileName = file.name;
+            const reader = new FileReader();
+
+            if (mode === 'enc') {
+                reader.onload = function(e) {
+                    const arrayBuffer = e.target.result;
+                    window.rawFileBytes = new Uint8Array(arrayBuffer);
+                    document.getElementById('enc-input').value = `[BINARY FILE LOADED: ${file.name} (${window.rawFileBytes.length} bytes)]`;
+                    document.getElementById('enc-input-stats').textContent = `${window.rawFileBytes.length} bytes`;
+                    logMessage(`Loaded raw file for encoding: ${file.name} (${window.rawFileBytes.length} bytes)`, 'success');
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.onload = function(e) {
+                    const content = new TextDecoder().decode(e.target.result);
+                    document.getElementById('dec-input').value = content;
+                    updateDecoderMetrics();
+                    logMessage(`Loaded Volt file for decoding: ${file.name}`, 'success');
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function runEncode() {
+            try {
+                let dataBytes;
+                const rawText = document.getElementById('enc-input').value;
+                
+                if (window.rawFileBytes && rawText.startsWith('[BINARY FILE LOADED:')) {
+                    dataBytes = window.rawFileBytes;
+                } else {
+                    dataBytes = new TextEncoder().encode(rawText);
+                }
+
+                if (dataBytes.length === 0) {
+                    logMessage('Encoding aborted: Payload stream is empty.', 'error');
+                    return;
+                }
+
+                const startTime = performance.now();
+
+                // 1. Compress with pako (deflate)
+                const compressed = pako.deflate(dataBytes);
+
+                // 2. Map compressed bytes into Volt 16-symbol alphabet via nibble splitting
+                let voltStr = '';
+                for (let i = 0; i < compressed.length; i++) {
+                    const b = compressed[i];
+                    const high = (b >> 4) & 0x0F;
+                    const low = b & 0x0F;
+                    voltStr += VOLT_ALPHABET[high] + VOLT_ALPHABET[low];
+                }
+
+                lastEncodedBytes = voltStr;
+
+                const endTime = performance.now();
+                const duration = (endTime - startTime).toFixed(2);
+
+                // Update Metrics Display
+                document.getElementById('m-orig').textContent = `${dataBytes.length} B`;
+                document.getElementById('m-comp').textContent = `${compressed.length} B`;
+                document.getElementById('m-volt').textContent = `${voltStr.length} chars`;
+
+                // Calculate reduction ratio based on string character length vs original byte length
+                // Note: since 1 char = 4 bits, character string length represents text footprint.
+                const diff = dataBytes.length - voltStr.length;
+                const ratio = dataBytes.length > 0 ? ((diff / dataBytes.length) * 100).toFixed(2) : 0;
+                
+                const ratioEl = document.getElementById('m-ratio');
+                ratioEl.textContent = `${ratio}%`;
+                if (ratio > 0) {
+                    ratioEl.className = 'metric-value highlight';
+                } else {
+                    ratioEl.className = 'metric-value';
+                }
+
+                document.getElementById('enc-output').value = voltStr;
+                document.getElementById('download-volt-btn').style.display = 'block';
+
+                logMessage(`Encoding successful in ${duration}ms. Original: ${dataBytes.length}B -> Volt: ${voltStr.length} chars (${ratio}% delta)`, 'success');
+
+            } catch (err) {
+                logMessage(`Encoding error: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+
+        function runDecode() {
+            try {
+                const voltInput = document.getElementById('dec-input').value.replace(/[\s\r\n]/g, '');
+                if (voltInput.length === 0) {
+                    logMessage('Decoding aborted: Input stream is empty.', 'error');
+                    return;
+                }
+
+                if (voltInput.length % 2 !== 0) {
+                    throw new Error('Volt stream length mismatch: must be an even symbol count.');
+                }
+
+                // Build fast reverse map
+                const map = {};
+                for (let i = 0; i < VOLT_ALPHABET.length; i++) {
+                    map[VOLT_ALPHABET[i]] = i;
+                }
+
+                const bytes = new Uint8Array(voltInput.length / 2);
+                for (let i = 0, j = 0; i < voltInput.length; i += 2, j++) {
+                    const c1 = voltInput[i];
+                    const c2 = voltInput[i+1];
+                    if (map[c1] === undefined || map[c2] === undefined) {
+                        throw new Error(`Unknown symbol detected: "${c1}" or "${c2}"`);
+                    }
+                    bytes[j] = (map[c1] << 4) | map[c2];
+                }
+
+                // Decompress via pako
+                const decompressedBytes = pako.inflate(bytes);
+                lastDecodedBytes = decompressedBytes;
+
+                // Try interpreting as UTF-8 text string
+                try {
+                    const textStr = new TextDecoder('utf-8', { fatal: true }).decode(decompressedBytes);
+                    document.getElementById('dec-output').value = textStr;
+                    logMessage(`Successfully decoded text stream (${decompressedBytes.length} restored bytes).`, 'success');
+                } catch {
+                    // Binary fallback view
+                    document.getElementById('dec-output').value = `[RESTORED BINARY PAYLOAD: ${decompressedBytes.length} bytes. Use download button to save file.]`;
+                    logMessage(`Successfully decoded binary stream (${decompressedBytes.length} bytes).`, 'success');
+                }
+
+                document.getElementById('download-decoded-btn').style.display = 'block';
+
+            } catch (err) {
+                logMessage(`Decoding error: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+
+        function copyOutput() {
+            const output = document.getElementById('enc-output');
+            output.select();
+            document.execCommand('copy');
+            logMessage('Volt encoded symbol sequence copied to clipboard.', 'success');
+        }
+
+        function copyDecoded() {
+            const output = document.getElementById('dec-output');
+            output.select();
+            document.execCommand('copy');
+            logMessage('Decoded output copied to clipboard.', 'success');
+        }
+
+        function clearEncoder() {
+            document.getElementById('enc-input').value = '';
+            document.getElementById('enc-output').value = '';
+            document.getElementById('enc-file-input').value = '';
+            document.getElementById('m-orig').textContent = '0 B';
+            document.getElementById('m-comp').textContent = '0 B';
+            document.getElementById('m-volt').textContent = '0 chars';
+            document.getElementById('m-ratio').textContent = '0.00%';
+            document.getElementById('download-volt-btn').style.display = 'none';
+            window.rawFileBytes = null;
+            updateEncoderMetrics();
+            logMessage('Encoder buffer cleared.');
+        }
+
+        function clearDecoder() {
+            document.getElementById('dec-input').value = '';
+            document.getElementById('dec-output').value = '';
+            document.getElementById('dec-file-input').value = '';
+            document.getElementById('download-decoded-btn').style.display = 'none';
+            lastDecodedBytes = null;
+            updateDecoderMetrics();
+            logMessage('Decoder buffer cleared.');
+        }
+
+        function downloadVoltFile() {
+            if (!lastEncodedBytes) return;
+            const blob = new Blob([lastEncodedBytes], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${loadedFileName.replace(/\.[^/.]+$/, '')}.volt`;
+            a.click();
+            URL.revokeObjectURL(url);
+            logMessage(`Exported encoded file: ${a.download}`, 'success');
+        }
+
+        function downloadDecodedFile() {
+            if (!lastDecodedBytes) return;
+            const blob = new Blob([lastDecodedBytes]);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `restored_${loadedFileName.replace('.volt', '')}`;
+            a.click();
+            URL.revokeObjectURL(url);
+            logMessage(`Exported restored binary file: ${a.download}`, 'success');
+        }
+    </script>
+</body>
+</html>
